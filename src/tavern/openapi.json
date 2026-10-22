@@ -1,0 +1,1130 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "游戏厅机器人接口",
+    "version": "1.0.0",
+    "description": "群里小游戏的通用协议：**群友的机器人实现这些接口，荷官（Dealer）来调用**。荷官是裁判和牌局状态的唯一来源，机器人只做决定、自己在群里说话。说明文档见 `docs/游戏厅-通用协议.md`。\n\n- 所有游戏共用 4 个接口，用路径里的 `{game}` 区分游戏；每个游戏的请求体、动作、事件在 components 里各占一组 schema（名字以游戏名开头）。\n- 签名：请求头 `X-Tavern-Timestamp`（Unix 秒）和 `X-Tavern-Signature`（`sha256=` + 十六进制），签名原文为 `时间戳.方法.路径.原始请求体`（方法大写，路径不含域名和查询串），密钥是双方私下约定的一串随机字符，**不是飞书的 App Secret**。签名不对或时间戳相差超过 300 秒返回 401。\n- 顺序：荷官给每个机器人的请求严格按先后一个个发，`seq` 从 1 起连续递增（荷官重启后重新从 1 开始）。做决定只看 decision 请求本身带的局面。\n- 兼容：看不懂的字段忽略；不支持的游戏在邀请时回 `accept: false` 或 404；只有不兼容的改动才升路径版本（/v2）。\n\n**增加一个游戏**：① `GameKey` 的 enum 加上游戏名；② 新增 `<游戏>RoundStart`、`<游戏>DecisionRequest`、`<游戏>Decision`、各个 `<游戏>…Event` schema；③ 把它们加进 `RoundStart`、`DecisionRequest`、`Decision`、`Event` 的 oneOf（前两个同时加进 discriminator 的 mapping）；④ 在 `tags` 里加一个同名标签，并写一份 `docs/游戏厅-<游戏>规格.md`。路径不用改。"
+  },
+  "servers": [
+    {
+      "url": "https://{host}/{base}",
+      "description": "你的机器人的基础地址（私下约定）",
+      "variables": {
+        "host": {
+          "default": "your-bot.example.com"
+        },
+        "base": {
+          "default": "tavern"
+        }
+      }
+    }
+  ],
+  "security": [
+    {
+      "TavernTimestamp": [],
+      "TavernSignature": []
+    }
+  ],
+  "tags": [
+    {
+      "name": "通用",
+      "description": "所有游戏共用的接口和数据结构"
+    },
+    {
+      "name": "liars_bar",
+      "description": "骗子酒馆，规格见 docs/游戏厅-骗子酒馆规格.md"
+    }
+  ],
+  "paths": {
+    "/v1/games/{game}/invitations": {
+      "post": {
+        "tags": [
+          "通用"
+        ],
+        "operationId": "invite",
+        "summary": "邀请上桌",
+        "description": "开局前桌上需要补机器人时调用，3 秒内回复。会玩这个游戏、现在方便就回 `accept: true`；否则回 `false`。404、超时、出错都当作不来。",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Game"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Invitation"
+              },
+              "example": {
+                "protocol": 1,
+                "seq": 1,
+                "game": "liars_bar",
+                "match_id": "m_example_123",
+                "chat_id": "oc_example",
+                "humans": [
+                  "Alice"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "接不接",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvitationReply"
+                },
+                "example": {
+                  "accept": true
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "不支持这个游戏（等同 accept: false）"
+          }
+        }
+      }
+    },
+    "/v1/games/{game}/matches/{match_id}/rounds/{round}": {
+      "put": {
+        "tags": [
+          "通用"
+        ],
+        "operationId": "startRound",
+        "summary": "新一轮的私有信息",
+        "description": "每轮开始（比如新发了牌）调用，带着你这一轮的私有信息。同一轮重复收到时以最后一次为准。立即回复。",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Game"
+          },
+          {
+            "$ref": "#/components/parameters/MatchId"
+          },
+          {
+            "$ref": "#/components/parameters/Round"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoundStart"
+              },
+              "example": {
+                "protocol": 1,
+                "seq": 12,
+                "game": "liars_bar",
+                "match_id": "m_example_123",
+                "chat_id": "oc_example",
+                "turn_id": 30,
+                "you": {
+                  "seat": 2,
+                  "name": "Carol"
+                },
+                "round": 3,
+                "target": "K",
+                "hand": [
+                  {
+                    "slot": 1,
+                    "card": "Q"
+                  },
+                  {
+                    "slot": 2,
+                    "card": "K"
+                  },
+                  {
+                    "slot": 3,
+                    "card": "JOKER"
+                  },
+                  {
+                    "slot": 4,
+                    "card": "A"
+                  },
+                  {
+                    "slot": 5,
+                    "card": "K"
+                  }
+                ],
+                "order": [
+                  {
+                    "seat": 0,
+                    "name": "Alice"
+                  },
+                  {
+                    "seat": 1,
+                    "name": "Bob"
+                  },
+                  {
+                    "seat": 2,
+                    "name": "Carol"
+                  }
+                ],
+                "first": 0
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "收到（响应体 `{}`）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {}
+              }
+            }
+          },
+          "204": {
+            "description": "收到（无响应体）"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/v1/games/{game}/matches/{match_id}/turns/{turn_id}/decision": {
+      "post": {
+        "tags": [
+          "通用"
+        ],
+        "operationId": "decide",
+        "summary": "轮到你：给出动作",
+        "description": "请求体带着做决定需要的完整局面。15 秒内回复（建议 3 秒内）；超时、出错、动作不合法、turn_id 对不上，这一手由荷官代打，连续 3 次失败本局不再找你。",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Game"
+          },
+          {
+            "$ref": "#/components/parameters/MatchId"
+          },
+          {
+            "$ref": "#/components/parameters/TurnId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DecisionRequest"
+              },
+              "example": {
+                "protocol": 1,
+                "seq": 20,
+                "game": "liars_bar",
+                "match_id": "m_example_123",
+                "chat_id": "oc_example",
+                "turn_id": 37,
+                "you": {
+                  "seat": 2,
+                  "name": "Carol"
+                },
+                "round": 3,
+                "target": "K",
+                "hand": [
+                  {
+                    "slot": 2,
+                    "card": "K"
+                  },
+                  {
+                    "slot": 3,
+                    "card": "JOKER"
+                  },
+                  {
+                    "slot": 4,
+                    "card": "A"
+                  }
+                ],
+                "can_challenge": true,
+                "must_challenge": false,
+                "last_play": {
+                  "seat": 1,
+                  "name": "Bob",
+                  "count": 2
+                },
+                "pile": 3,
+                "players": [
+                  {
+                    "seat": 0,
+                    "name": "Alice",
+                    "alive": true,
+                    "cards_left": 4,
+                    "shots_fired": 1,
+                    "is_bot": false
+                  },
+                  {
+                    "seat": 1,
+                    "name": "Bob",
+                    "alive": true,
+                    "cards_left": 2,
+                    "shots_fired": 0,
+                    "is_bot": true
+                  },
+                  {
+                    "seat": 2,
+                    "name": "Carol",
+                    "alive": true,
+                    "cards_left": 3,
+                    "shots_fired": 2,
+                    "is_bot": true
+                  }
+                ],
+                "log": [
+                  "第 3 小局开始，目标牌 K",
+                  "Alice出了 1 张（声称都是 K），还剩 4 张。",
+                  "Bob出了 2 张（声称都是 K），还剩 2 张。"
+                ],
+                "chat": [
+                  {
+                    "name": "Alice",
+                    "text": "Carol你手里肯定没 K"
+                  }
+                ],
+                "deadline_ms": 15000
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "动作（按路径里的 game 选对应游戏的 Decision schema）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Decision"
+                },
+                "examples": {
+                  "liars_bar_play": {
+                    "summary": "骗子酒馆：出 3、4 号位",
+                    "value": {
+                      "turn_id": 37,
+                      "action": "play",
+                      "slots": [
+                        3,
+                        4
+                      ]
+                    }
+                  },
+                  "liars_bar_challenge": {
+                    "summary": "骗子酒馆：质疑",
+                    "value": {
+                      "turn_id": 37,
+                      "action": "challenge"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/v1/games/{game}/matches/{match_id}/events": {
+      "post": {
+        "tags": [
+          "通用"
+        ],
+        "operationId": "receiveEvent",
+        "summary": "公开事件",
+        "description": "牌桌上发生的公开的事，事后通知，立即回复。想说话就用你自己的机器人发到 chat_id 对应的群里。",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Game"
+          },
+          {
+            "$ref": "#/components/parameters/MatchId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Event"
+              },
+              "examples": {
+                "game_over": {
+                  "summary": "本局结束（通用）",
+                  "value": {
+                    "protocol": 1,
+                    "seq": 21,
+                    "game": "liars_bar",
+                    "match_id": "m_example_123",
+                    "chat_id": "oc_example",
+                    "turn_id": 39,
+                    "you": {
+                      "seat": 2,
+                      "name": "Carol"
+                    },
+                    "event": "game_over",
+                    "winner": {
+                      "seat": 1,
+                      "name": "Bob"
+                    }
+                  }
+                },
+                "liars_bar_shot": {
+                  "summary": "骗子酒馆：开枪",
+                  "value": {
+                    "protocol": 1,
+                    "seq": 21,
+                    "game": "liars_bar",
+                    "match_id": "m_example_123",
+                    "chat_id": "oc_example",
+                    "turn_id": 39,
+                    "you": {
+                      "seat": 2,
+                      "name": "Carol"
+                    },
+                    "event": "shot",
+                    "seat": 2,
+                    "name": "Carol",
+                    "result": "click",
+                    "shots_fired": 3,
+                    "nth": 3
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "收到（响应体 `{}`）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {}
+              }
+            }
+          },
+          "204": {
+            "description": "收到（无响应体）"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "TavernTimestamp": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Tavern-Timestamp",
+        "description": "发出请求时的 Unix 时间（秒）。和你的时钟相差超过 300 秒就拒绝。"
+      },
+      "TavernSignature": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Tavern-Signature",
+        "description": "`sha256=` + HMAC_SHA256(密钥, `时间戳.方法.路径.原始请求体`) 的十六进制。对收到的原始字节验签后再解析 JSON，比较用恒定时间函数。"
+      }
+    },
+    "responses": {
+      "Unauthorized": {
+        "description": "签名不对或时间戳过期，不处理"
+      }
+    },
+    "parameters": {
+      "Game": {
+        "name": "game",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "$ref": "#/components/schemas/GameKey"
+        }
+      },
+      "MatchId": {
+        "name": "match_id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string"
+        },
+        "description": "这一局的编号"
+      },
+      "Round": {
+        "name": "round",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "description": "第几轮"
+      },
+      "TurnId": {
+        "name": "turn_id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "description": "回合号，回复时原样带回"
+      }
+    },
+    "schemas": {
+      "GameKey": {
+        "type": "string",
+        "enum": [
+          "liars_bar"
+        ],
+        "description": "游戏名。新游戏上线时往这里加。"
+      },
+      "Seat": {
+        "type": "object",
+        "properties": {
+          "seat": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "seat",
+          "name"
+        ]
+      },
+      "Common": {
+        "type": "object",
+        "description": "除邀请外，每个请求体都带的公共字段。看不懂的其他字段一律忽略。",
+        "properties": {
+          "protocol": {
+            "const": 1,
+            "description": "协议版本"
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "发给你的第几个请求，严格递增，可用于去重、判断先后"
+          },
+          "game": {
+            "$ref": "#/components/schemas/GameKey"
+          },
+          "match_id": {
+            "type": "string",
+            "description": "这一局的编号，和路径一致"
+          },
+          "chat_id": {
+            "type": "string",
+            "description": "在哪个飞书群，台词发到这里"
+          },
+          "turn_id": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "本局回合号，从 0 开始只增不减；同一回合的几个请求可能共用一个 turn_id"
+          },
+          "you": {
+            "$ref": "#/components/schemas/Seat"
+          }
+        },
+        "required": [
+          "protocol",
+          "seq",
+          "game",
+          "match_id",
+          "chat_id",
+          "turn_id",
+          "you"
+        ]
+      },
+      "Invitation": {
+        "type": "object",
+        "properties": {
+          "protocol": {
+            "const": 1
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "game": {
+            "$ref": "#/components/schemas/GameKey"
+          },
+          "match_id": {
+            "type": "string"
+          },
+          "chat_id": {
+            "type": "string"
+          },
+          "humans": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "已经上桌的真人"
+          }
+        },
+        "required": [
+          "protocol",
+          "seq",
+          "game",
+          "match_id",
+          "chat_id",
+          "humans"
+        ]
+      },
+      "InvitationReply": {
+        "type": "object",
+        "properties": {
+          "accept": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "accept"
+        ]
+      },
+      "DecisionBase": {
+        "type": "object",
+        "description": "所有游戏的动作都有这两个字段，其余字段由各游戏定义",
+        "properties": {
+          "turn_id": {
+            "type": "integer",
+            "description": "和路径里的 turn_id 一致"
+          },
+          "action": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "turn_id",
+          "action"
+        ]
+      },
+      "GameOverEvent": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Common"
+          },
+          {
+            "type": "object",
+            "description": "本局结束（所有游戏通用）",
+            "properties": {
+              "event": {
+                "const": "game_over"
+              },
+              "winner": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Seat"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "null 表示没有赢家（中途散场）"
+              }
+            },
+            "required": [
+              "event",
+              "winner"
+            ]
+          }
+        ]
+      },
+      "RoundStart": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/LiarsBarRoundStart"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "game",
+          "mapping": {
+            "liars_bar": "#/components/schemas/LiarsBarRoundStart"
+          }
+        }
+      },
+      "DecisionRequest": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/LiarsBarDecisionRequest"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "game",
+          "mapping": {
+            "liars_bar": "#/components/schemas/LiarsBarDecisionRequest"
+          }
+        }
+      },
+      "Decision": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/LiarsBarDecision"
+          }
+        ],
+        "description": "按路径里的 game 选对应游戏的动作"
+      },
+      "Event": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/GameOverEvent"
+          },
+          {
+            "$ref": "#/components/schemas/LiarsBarPlayEvent"
+          },
+          {
+            "$ref": "#/components/schemas/LiarsBarChallengeEvent"
+          },
+          {
+            "$ref": "#/components/schemas/LiarsBarShotEvent"
+          }
+        ]
+      },
+      "LiarsBarCard": {
+        "type": "string",
+        "enum": [
+          "Q",
+          "K",
+          "A",
+          "JOKER"
+        ]
+      },
+      "LiarsBarHandCard": {
+        "type": "object",
+        "properties": {
+          "slot": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5
+          },
+          "card": {
+            "$ref": "#/components/schemas/LiarsBarCard"
+          }
+        },
+        "required": [
+          "slot",
+          "card"
+        ]
+      },
+      "LiarsBarPlayer": {
+        "type": "object",
+        "properties": {
+          "seat": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "alive": {
+            "type": "boolean"
+          },
+          "cards_left": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "shots_fired": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "这把枪已空响几次；下一枪中弹概率 1/(6-shots_fired)"
+          },
+          "is_bot": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "seat",
+          "name",
+          "alive",
+          "cards_left",
+          "shots_fired",
+          "is_bot"
+        ]
+      },
+      "LiarsBarRoundStart": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Common"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "game": {
+                "const": "liars_bar"
+              },
+              "round": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "target": {
+                "type": "string",
+                "enum": [
+                  "Q",
+                  "K",
+                  "A"
+                ],
+                "description": "本小局目标牌"
+              },
+              "hand": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/LiarsBarHandCard"
+                },
+                "description": "你的手牌（私有）"
+              },
+              "order": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Seat"
+                },
+                "description": "座次"
+              },
+              "first": {
+                "type": "integer",
+                "description": "这一小局先出牌的座位"
+              }
+            },
+            "required": [
+              "round",
+              "target",
+              "hand",
+              "order",
+              "first"
+            ]
+          }
+        ]
+      },
+      "LiarsBarDecisionRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Common"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "game": {
+                "const": "liars_bar"
+              },
+              "round": {
+                "type": "integer"
+              },
+              "target": {
+                "type": "string",
+                "enum": [
+                  "Q",
+                  "K",
+                  "A"
+                ]
+              },
+              "hand": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/LiarsBarHandCard"
+                }
+              },
+              "can_challenge": {
+                "type": "boolean",
+                "description": "本小局第一手为 false"
+              },
+              "must_challenge": {
+                "type": "boolean",
+                "description": "只剩你手里有牌时为 true，只能质疑"
+              },
+              "last_play": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "seat": {
+                        "type": "integer"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "count": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 3
+                      }
+                    },
+                    "required": [
+                      "seat",
+                      "name",
+                      "count"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "上一手：谁、出了几张；第一手为 null"
+              },
+              "pile": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "本小局大家一共声称出了几张目标牌"
+              },
+              "players": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/LiarsBarPlayer"
+                }
+              },
+              "log": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "最近的公开播报"
+              },
+              "chat": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "description": "牌局期间群里最近 10 条不是指令的发言"
+              },
+              "deadline_ms": {
+                "type": "integer",
+                "description": "回复时限（毫秒）"
+              }
+            },
+            "required": [
+              "round",
+              "target",
+              "hand",
+              "can_challenge",
+              "must_challenge",
+              "last_play",
+              "pile",
+              "players"
+            ]
+          }
+        ]
+      },
+      "LiarsBarDecision": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/LiarsBarPlay"
+          },
+          {
+            "$ref": "#/components/schemas/LiarsBarChallenge"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "action",
+          "mapping": {
+            "play": "#/components/schemas/LiarsBarPlay",
+            "challenge": "#/components/schemas/LiarsBarChallenge"
+          }
+        }
+      },
+      "LiarsBarPlay": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/DecisionBase"
+          },
+          {
+            "type": "object",
+            "description": "扣着出牌，一律声称是目标牌；must_challenge 为 true 时不能用",
+            "properties": {
+              "action": {
+                "const": "play"
+              },
+              "slots": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 5
+                },
+                "minItems": 1,
+                "maxItems": 3,
+                "uniqueItems": true,
+                "description": "要出的牌的位置号，必须在手里"
+              }
+            },
+            "required": [
+              "slots"
+            ]
+          }
+        ]
+      },
+      "LiarsBarChallenge": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/DecisionBase"
+          },
+          {
+            "type": "object",
+            "description": "质疑上一家；can_challenge 为 true 时才能用",
+            "properties": {
+              "action": {
+                "const": "challenge"
+              }
+            }
+          }
+        ]
+      },
+      "LiarsBarPlayEvent": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Common"
+          },
+          {
+            "type": "object",
+            "description": "有人出了几张",
+            "properties": {
+              "event": {
+                "const": "play"
+              },
+              "seat": {
+                "type": "integer"
+              },
+              "name": {
+                "type": "string"
+              },
+              "count": {
+                "type": "integer"
+              },
+              "cards_left": {
+                "type": "integer"
+              },
+              "game": {
+                "const": "liars_bar"
+              }
+            },
+            "required": [
+              "event",
+              "seat",
+              "name",
+              "count",
+              "cards_left"
+            ]
+          }
+        ]
+      },
+      "LiarsBarChallengeEvent": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Common"
+          },
+          {
+            "type": "object",
+            "description": "有人质疑，翻牌结果",
+            "properties": {
+              "event": {
+                "const": "challenge"
+              },
+              "challenger": {
+                "$ref": "#/components/schemas/Seat"
+              },
+              "accused": {
+                "$ref": "#/components/schemas/Seat"
+              },
+              "revealed": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/LiarsBarCard"
+                }
+              },
+              "lied": {
+                "type": "boolean",
+                "description": "上一家有没有撒谎"
+              },
+              "shooter": {
+                "$ref": "#/components/schemas/Seat"
+              },
+              "game": {
+                "const": "liars_bar"
+              }
+            },
+            "required": [
+              "event",
+              "challenger",
+              "accused",
+              "revealed",
+              "lied",
+              "shooter"
+            ]
+          }
+        ]
+      },
+      "LiarsBarShotEvent": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Common"
+          },
+          {
+            "type": "object",
+            "description": "开枪",
+            "properties": {
+              "event": {
+                "const": "shot"
+              },
+              "seat": {
+                "type": "integer"
+              },
+              "name": {
+                "type": "string"
+              },
+              "result": {
+                "type": "string",
+                "enum": [
+                  "click",
+                  "bang",
+                  "misfire"
+                ],
+                "description": "click 空枪、bang 中弹出局、misfire 哑火"
+              },
+              "shots_fired": {
+                "type": "integer"
+              },
+              "nth": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "这把枪自上次装弹以来的第几枪"
+              },
+              "game": {
+                "const": "liars_bar"
+              }
+            },
+            "required": [
+              "event",
+              "seat",
+              "name",
+              "result",
+              "shots_fired",
+              "nth"
+            ]
+          }
+        ]
+      }
+    }
+  }
+}
