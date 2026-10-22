@@ -43,12 +43,30 @@ export interface PromptHint {
   text: string;
 }
 
+export interface PluginToolResult {
+  content: string;
+  requiresFollowUp?: boolean;
+}
+
+export interface PluginTool {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+  execute(input: unknown): Promise<PluginToolResult> | PluginToolResult;
+}
+
+export interface PluginSceneDefinition {
+  id: string;
+  hint?: string;
+  idleTimeoutMs?: number;
+}
+
 export interface PluginExtensionPoints {
-  tools?: unknown[];
+  tools?: PluginTool[] | ((chatId: string, chatPluginConfig?: unknown) => PluginTool[] | undefined);
   memoryBackend?: unknown;
   mediaResolvers?: unknown[];
   httpRoutes?: HttpRoute[];
-  scenes?: unknown[];
+  scenes?: PluginSceneDefinition[];
   promptHints?: (chatId: string) => PromptHint[] | undefined;
 }
 
@@ -65,6 +83,11 @@ export interface PluginCapabilities {
 
   chat: {
     publish(chatId: string, options: ChatPublishOptions): Promise<void> | void;
+  };
+
+  scene: {
+    enter(chatId: string, sceneId: string): void;
+    exit(chatId: string, sceneId: string): void;
   };
 
   storage: {

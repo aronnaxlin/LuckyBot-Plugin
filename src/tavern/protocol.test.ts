@@ -1,12 +1,12 @@
 import { createHmac } from 'node:crypto';
 
-import { describe, expect, it, vi } from 'vitest';
 import * as v from 'valibot';
+import { describe, expect, it, vi } from 'vitest';
 
-import { liarsBarModule } from '../games/liars-bar';
-import type { HttpRequest, PluginCapabilities, PluginContext } from '../sdk/types';
 import { createTavernProtocolHandler } from './protocol';
 import { TavernConfigSchema, type TavernConfig } from './types';
+import { liarsBarModule } from '../games/liars-bar';
+import type { HttpRequest, PluginCapabilities, PluginContext } from '../sdk/types';
 
 const SECRET = '{{SECRET_a3x3429z}}';
 
@@ -21,6 +21,10 @@ const createMockContext = () => {
       publish: vi.fn(async (chatId, options) => {
         published.push({ chatId, options });
       }),
+    },
+    scene: {
+      enter: vi.fn(),
+      exit: vi.fn(),
     },
     storage: { rootDir: '/tmp/test-storage' },
     log: {
@@ -299,6 +303,54 @@ describe('Tavern Protocol Handler (OpenAPI v1, de-identified)', () => {
       expect(res2.status).toBe(200); // still responds 200 to dealer
       expect(published.length).toBe(1); // but does NOT publish duplicate event to group
     });
+
+    it('enters scene table on the first public event and exits on isGameEnd', async () => {
+      const { ctx } = createMockContext();
+      const handler = createTavernProtocolHandler(ctx.config, ctx, [liarsBarModule]);
+
+      const playEvent = {
+        seq: 1,
+        game: 'liars_bar',
+        match_id: 'm_scene_test',
+        chat_id: 'oc_scene_chat',
+        turn_id: 1,
+        event: 'play',
+        seat: 0,
+        name: 'Alice',
+        count: 1,
+      };
+
+      const req1 = signRequest('POST', '/v1/games/liars_bar/matches/m_scene_test/events', playEvent);
+      await handler.handleEvent(req1, 'liars_bar', 'm_scene_test');
+      expect(ctx.capabilities.scene.enter).toHaveBeenCalledWith('oc_scene_chat', 'table');
+      expect(ctx.capabilities.scene.enter).toHaveBeenCalledTimes(1);
+
+      // Second public event should not enter scene again
+      const playEvent2 = {
+        ...playEvent,
+        seq: 2,
+        turn_id: 2,
+        name: 'Bob',
+      };
+      const req2 = signRequest('POST', '/v1/games/liars_bar/matches/m_scene_test/events', playEvent2);
+      await handler.handleEvent(req2, 'liars_bar', 'm_scene_test');
+      expect(ctx.capabilities.scene.enter).toHaveBeenCalledTimes(1);
+      expect(ctx.capabilities.scene.exit).not.toHaveBeenCalled();
+
+      // Game over event triggers scene.exit
+      const gameOverEvent = {
+        seq: 3,
+        game: 'liars_bar',
+        match_id: 'm_scene_test',
+        chat_id: 'oc_scene_chat',
+        event: 'game_over',
+        winner: 0,
+        winner_name: 'Alice',
+      };
+      const req3 = signRequest('POST', '/v1/games/liars_bar/matches/m_scene_test/events', gameOverEvent);
+      await handler.handleEvent(req3, 'liars_bar', 'm_scene_test');
+      expect(ctx.capabilities.scene.exit).toHaveBeenCalledWith('oc_scene_chat', 'table');
+    });
   });
 
   describe('TavernConfigSchema (R9)', () => {
@@ -307,8 +359,7 @@ describe('Tavern Protocol Handler (OpenAPI v1, de-identified)', () => {
         v.parse(TavernConfigSchema, {
           enabled: true,
           secret: '',
-        }),
-      ).toThrow('tavern.secret is required when tavern plugin is enabled');
+        })).toThrow('tavern.secret is required when tavern plugin is enabled');
     });
 
     it('permits empty secret when tavern plugin is disabled', () => {

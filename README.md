@@ -15,16 +15,21 @@ Core acts as the **host** providing strictly scoped capabilities (model invocati
 ```text
 src/
 ├── sdk/              Plugin SDK contract and type definitions
-├── tavern/           Tavern webhook protocol (HMAC verification, routing, seq management)
+├── tavern/           Tavern webhook protocol (HMAC verification, routing, seq management, scenes)
+├── web/              Web search & fetch plugin (tavily, exa, jina, microsoft grounding)
 ├── games/
 │   ├── types.ts      Game module interface
 │   └── liars-bar/    Liar's Bar game logic (rules, prompt, fallback, validation)
 └── index.ts          Static plugin registry export
 ```
 
-## First Plugin: Tavern & Liar's Bar
+## Included Plugins
 
-The repository includes the `tavern` plugin implementing the dealer webhook protocol (OpenAPI v1) and the `liars_bar` game module. See `src/games/README.md` for deployment and maintenance notes.
+### 1. Web Tools (`web`)
+Contributes `web_search` and `web_fetch` primary tools via the `tools` extension point. Supports pluggable search backends (Tavily, Exa, Jina, Microsoft Grounding) and clean Markdown web page fetching (Jina Reader). Configured under `plugins.web` and enabled per-chat under `chats.<id>.plugins.web.enabled`.
+
+### 2. Tavern & Liar's Bar (`tavern`)
+The repository includes the `tavern` plugin implementing the dealer webhook protocol (OpenAPI v1), the `liars_bar` game module, and the `table` scene override (`contributes.scenes`). See `src/games/README.md` for deployment and maintenance notes.
 
 ### Reverse Proxy & Path Notice
 

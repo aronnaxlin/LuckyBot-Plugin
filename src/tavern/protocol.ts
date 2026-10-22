@@ -2,9 +2,9 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 
 import * as v from 'valibot';
 
+import type { TavernConfig } from './types';
 import type { GameAction, GameModule } from '../games/types';
 import type { HttpRequest, HttpResponse, PluginContext } from '../sdk/types';
-import type { TavernConfig } from './types';
 
 const MAX_STORED_ROUNDS = 50;
 const ROUND_RETENTION_MS = 2 * 60 * 60 * 1000; // 2 hours
@@ -119,6 +119,8 @@ export const createTavernProtocolHandler = (
 ): TavernProtocolHandler => {
   const matchSeqs = new Map<string, number>();
   const matchRounds = new Map<string, StoredRound>();
+  const matchChatIds = new Map<string, string>();
+  const activeSceneMatches = new Set<string>();
 
   const getGameModule = (gameKey: string): GameModule | undefined =>
     gameModules.find(m => m.id === gameKey);
@@ -334,6 +336,7 @@ export const createTavernProtocolHandler = (
 
     const chatId = typeof body.chat_id === 'string' ? body.chat_id : undefined;
     if (chatId) {
+      matchChatIds.set(matchKey, chatId);
       try {
         const text = game.describeEvent(req.body);
         if (text) {
@@ -343,6 +346,10 @@ export const createTavernProtocolHandler = (
             text,
             wake,
           });
+          if (!activeSceneMatches.has(matchKey)) {
+            activeSceneMatches.add(matchKey);
+            ctx.capabilities.scene.enter(chatId, 'table');
+          }
         }
       } catch (err) {
         ctx.capabilities.log.error('Failed to describe or publish tavern event', { error: err });
@@ -352,6 +359,12 @@ export const createTavernProtocolHandler = (
     if (game.isGameEnd(req.body)) {
       matchRounds.delete(matchKey);
       matchSeqs.delete(matchKey);
+      activeSceneMatches.delete(matchKey);
+      const targetChatId = chatId ?? matchChatIds.get(matchKey);
+      if (targetChatId) {
+        ctx.capabilities.scene.exit(targetChatId, 'table');
+      }
+      matchChatIds.delete(matchKey);
     }
 
     return { status: 200, body: {} };

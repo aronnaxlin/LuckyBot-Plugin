@@ -13,6 +13,12 @@ export const tavernPlugin = definePlugin<TavernConfig>({
   sdkVersion: CURRENT_SDK_VERSION,
   configSchema: TavernConfigSchema,
   contributes: {
+    scenes: [
+      {
+        id: 'table',
+        hint: 'You are currently participating in a mini-game table in this group. Keep table talk short, in character, and stay in persona.',
+      },
+    ],
     promptHints: (_chatId: string) => [
       {
         placement: 'system',

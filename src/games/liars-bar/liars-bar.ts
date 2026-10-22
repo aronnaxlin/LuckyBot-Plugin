@@ -123,7 +123,7 @@ export const fallbackLiarsBar = (req: LiarsBarDecideRequest): GameAction => {
     .filter(h => h && (h.card === req?.target || h.card === 'JOKER'))
     .map(h => h.slot);
 
-  if (req?.can_challenge && req.last_play && req.last_play.count === 3 && honest.length === 0) {
+  if (req?.can_challenge && req.last_play?.count === 3 && honest.length === 0) {
     return { turn_id: turnId, action: 'challenge' };
   }
 

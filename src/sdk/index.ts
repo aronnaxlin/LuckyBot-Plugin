@@ -11,5 +11,8 @@ export {
   type PluginDefinition,
   type PluginExtensionPoints,
   type PluginLogger,
+  type PluginSceneDefinition,
+  type PluginTool,
+  type PluginToolResult,
   type PromptHint,
 } from './types';
