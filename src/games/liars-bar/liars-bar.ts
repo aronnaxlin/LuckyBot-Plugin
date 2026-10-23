@@ -207,29 +207,48 @@ export const describeLiarsBarEvent = (event: unknown): string | undefined => {
   const e = event as Record<string, unknown>;
   const eventType = e.event;
 
+  const youSeat = typeof e.you === 'object' && e.you !== null
+    ? (e.you as { seat?: number }).seat
+    : undefined;
+
   if (eventType === 'play') {
+    const isYou = youSeat !== undefined && e.seat === youSeat;
     const name = String(e.name ?? 'Someone');
     const count = Number(e.count ?? 0);
     const cardsLeft = Number(e.cards_left ?? 0);
-    return `${name} 出了 ${count} 张牌，还剩 ${cardsLeft} 张牌。`;
+    const target = e.target ? String(e.target) : undefined;
+    const claim = target ? `（声称都是 ${target}）` : '';
+
+    if (isYou) {
+      const cardsLeftText = e.cards_left !== undefined ? `，还剩 ${cardsLeft} 张牌` : '';
+      return `你出了 ${count} 张${claim}${cardsLeftText}。`;
+    }
+
+    return `${name} 出了 ${count} 张牌${claim}，还剩 ${cardsLeft} 张牌。`;
   }
 
   if (eventType === 'challenge') {
-    const challenger = (e.challenger as Record<string, unknown>)?.name ?? 'Someone';
-    const accused = (e.accused as Record<string, unknown>)?.name ?? 'Someone';
+    const challenger = (e.challenger as Record<string, unknown> | undefined)?.name ?? 'Someone';
+    const accused = (e.accused as Record<string, unknown> | undefined)?.name ?? 'Someone';
     const revealed = Array.isArray(e.revealed) ? e.revealed.join(', ') : '';
     const lied = e.lied === true;
-    const shooter = (e.shooter as Record<string, unknown>)?.name ?? (lied ? accused : challenger);
+    const shooter = (e.shooter as Record<string, unknown> | undefined)?.name ?? (lied ? accused : challenger);
     const liedDesc = lied ? `${accused} 撒谎属实` : `${accused} 没有撒谎`;
     return `${challenger} 质疑了 ${accused}！翻牌：[${revealed}]。${liedDesc}，${shooter} 需接受惩罚开枪。`;
   }
 
   if (eventType === 'shot') {
-    const name = String(e.name ?? 'Someone');
+    const isYou = youSeat !== undefined && e.seat === youSeat;
+    const name = isYou ? '你' : String(e.name ?? 'Someone');
     const nth = Number(e.nth ?? e.shots_fired ?? 1);
     const result = String(e.result ?? '');
+
     if (result === 'click') {
-      return `${name} 扣动扳机（第 ${nth} 枪）……click！空枪，安然无恙。`;
+      const shotsFired = Number(e.shots_fired ?? e.nth ?? 1);
+      const odds = Number.isInteger(shotsFired) && shotsFired >= 0 && shotsFired < 6
+        ? `下一枪中弹概率 1/${6 - shotsFired}。`
+        : '';
+      return `${name} 扣动扳机（第 ${nth} 枪）……click！空枪，安然无恙。${odds}`.trim();
     }
     if (result === 'bang') {
       return `${name} 扣动扳机（第 ${nth} 枪）……BANG！实弹击中，不幸出局！`;
@@ -241,9 +260,11 @@ export const describeLiarsBarEvent = (event: unknown): string | undefined => {
   }
 
   if (eventType === 'game_over') {
-    const winner = (e.winner as Record<string, unknown> | null | undefined)?.name;
-    if (winner) {
-      return `游戏结束！胜者：${winner}。`;
+    const winner = (e.winner as Record<string, unknown> | null | undefined);
+    if (winner && typeof winner === 'object') {
+      const isYou = youSeat !== undefined && winner.seat === youSeat;
+      const winnerName = isYou ? '你' : String(winner.name ?? 'Someone');
+      return `游戏结束！胜者：${winnerName}。`;
     }
     return '游戏结束（中途散场）。';
   }
@@ -251,19 +272,65 @@ export const describeLiarsBarEvent = (event: unknown): string | undefined => {
   return undefined;
 };
 
+// Every public table event wakes the bot (owner choice: an active table
+// talker). Whether it actually speaks is left to the probe and the table
+// scene's brake; events that arrive while a turn runs are batched into the
+// next wake-up, so this does not queue one turn per event.
+const WAKING_EVENTS: ReadonlySet<string> = new Set(['play', 'challenge', 'shot', 'game_over']);
+
 export const wakesBotLiarsBar = (event: unknown): boolean => {
   if (!event || typeof event !== 'object') return false;
-  const e = event as Record<string, unknown>;
-  const eventType = e.event;
-  if (eventType === 'challenge') return true;
-  if (eventType === 'shot' && e.result === 'bang') return true;
-  if (eventType === 'game_over') return true;
-  return false;
+  const eventType = (event as Record<string, unknown>).event;
+  return typeof eventType === 'string' && WAKING_EVENTS.has(eventType);
 };
 
 export const isGameEndLiarsBar = (event: unknown): boolean => {
   if (!event || typeof event !== 'object') return false;
   return (event as Record<string, unknown>).event === 'game_over';
+};
+
+const formatHandCards = (hand: unknown): string => {
+  if (!Array.isArray(hand)) return '';
+  return hand
+    .map(h => (typeof h === 'object' && h !== null && 'card' in h ? String((h as { card: unknown }).card) : String(h)))
+    .join(', ');
+};
+
+export const createLiarsBarRoundNote = (req: unknown): string | undefined => {
+  if (!req || typeof req !== 'object') return undefined;
+  const r = req as Record<string, unknown>;
+  const round = r.round ?? 1;
+  const target = r.target ?? '未知';
+  const handStr = formatHandCards(r.hand);
+  return `轮次: ${round} | 目标牌: ${target} | 当前手牌: [${handStr}]`;
+};
+
+export const createLiarsBarDecisionNote = (req: unknown, action: GameAction): string | undefined => {
+  if (!req || typeof req !== 'object') return undefined;
+  const r = req as Record<string, unknown>;
+  const round = r.round ?? 1;
+  const target = String(r.target ?? '未知');
+  const rawHand = Array.isArray(r.hand) ? (r.hand as Array<{ slot?: number; card?: string }>) : [];
+
+  if (action.action === 'challenge') {
+    const handStr = formatHandCards(rawHand);
+    return `轮次: ${round} | 目标牌: ${target} | 当前手牌: [${handStr}] | 上一手: 质疑`;
+  }
+
+  if (action.action === 'play') {
+    const playedSlots = new Set(Array.isArray(action.slots) ? action.slots : []);
+    const playedCards = rawHand.filter(h => h?.slot !== undefined && playedSlots.has(h.slot));
+    const remainingCards = rawHand.filter(h => h?.slot !== undefined && !playedSlots.has(h.slot));
+
+    const isHonest = playedCards.length > 0 && playedCards.every(h => h.card === target || h.card === 'JOKER');
+    const honestyStr = isHonest ? '真牌' : '诈唬';
+    const playedStr = formatHandCards(playedCards);
+    const remainingStr = formatHandCards(remainingCards);
+
+    return `轮次: ${round} | 目标牌: ${target} | 当前手牌: [${remainingStr}] | 上一手: 出牌 [${playedStr}]（${honestyStr}）`;
+  }
+
+  return undefined;
 };
 
 export const liarsBarModule: GameModule = {
@@ -309,5 +376,13 @@ export const liarsBarModule: GameModule = {
 
   isGameEnd(event: unknown): boolean {
     return isGameEndLiarsBar(event);
+  },
+
+  createRoundNote(req: unknown): string | undefined {
+    return createLiarsBarRoundNote(req);
+  },
+
+  createDecisionNote(req: unknown, action: GameAction): string | undefined {
+    return createLiarsBarDecisionNote(req, action);
   },
 };

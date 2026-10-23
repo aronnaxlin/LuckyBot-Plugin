@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   buildLiarsBarPrompt,
+  createLiarsBarDecisionNote,
+  createLiarsBarRoundNote,
   describeLiarsBarEvent,
   fallbackLiarsBar,
   isGameEndLiarsBar,
@@ -202,6 +204,29 @@ describe("Liar's Bar module (de-identified)", () => {
       expect(text).toBe('Carol 出了 2 张牌，还剩 1 张牌。');
     });
 
+    it('marks bot own play event with claim in Chinese', () => {
+      const ownPlay = describeLiarsBarEvent({
+        event: 'play',
+        seat: 2,
+        name: 'Carol',
+        you: { seat: 2, name: 'Carol' },
+        count: 2,
+        target: 'K',
+      });
+      expect(ownPlay).toBe('你出了 2 张（声称都是 K）。');
+
+      const ownPlayWithCardsLeft = describeLiarsBarEvent({
+        event: 'play',
+        seat: 2,
+        name: 'Carol',
+        you: { seat: 2, name: 'Carol' },
+        count: 2,
+        cards_left: 1,
+        target: 'K',
+      });
+      expect(ownPlayWithCardsLeft).toBe('你出了 2 张（声称都是 K），还剩 1 张牌。');
+    });
+
     it('describes challenge events (lied)', () => {
       const text = describeLiarsBarEvent({
         event: 'challenge',
@@ -214,9 +239,9 @@ describe("Liar's Bar module (de-identified)", () => {
       expect(text).toBe('Alice 质疑了 Carol！翻牌：[JOKER, A]。Carol 撒谎属实，Carol 需接受惩罚开枪。');
     });
 
-    it('describes shot events', () => {
+    it('describes shot events with public odds after click', () => {
       expect(describeLiarsBarEvent({ event: 'shot', name: 'Carol', nth: 3, result: 'click' }))
-        .toBe('Carol 扣动扳机（第 3 枪）……click！空枪，安然无恙。');
+        .toBe('Carol 扣动扳机（第 3 枪）……click！空枪，安然无恙。下一枪中弹概率 1/3。');
       expect(describeLiarsBarEvent({ event: 'shot', name: 'Carol', nth: 4, result: 'bang' }))
         .toBe('Carol 扣动扳机（第 4 枪）……BANG！实弹击中，不幸出局！');
     });
@@ -230,17 +255,79 @@ describe("Liar's Bar module (de-identified)", () => {
   });
 
   describe('wakesBot and isGameEnd', () => {
-    it('wakes on challenge, bang, and game_over', () => {
-      expect(wakesBotLiarsBar({ event: 'challenge' })).toBe(true);
-      expect(wakesBotLiarsBar({ event: 'shot', result: 'bang' })).toBe(true);
-      expect(wakesBotLiarsBar({ event: 'game_over' })).toBe(true);
-      expect(wakesBotLiarsBar({ event: 'play' })).toBe(false);
-      expect(wakesBotLiarsBar({ event: 'shot', result: 'click' })).toBe(false);
+    it('wakes on every public table event and nothing else', () => {
+      for (const event of [
+        { event: 'play', seat: 0, you: { seat: 2, name: 'Carol' }, count: 1 },
+        { event: 'play', seat: 2, you: { seat: 2, name: 'Carol' }, count: 2 },
+        { event: 'challenge' },
+        { event: 'shot', result: 'click' },
+        { event: 'shot', result: 'misfire' },
+        { event: 'shot', result: 'bang' },
+        { event: 'game_over' },
+      ]) expect(wakesBotLiarsBar(event)).toBe(true);
+      expect(wakesBotLiarsBar({ event: 'something_new' })).toBe(false);
+      expect(wakesBotLiarsBar(null)).toBe(false);
     });
 
     it('detects game end on game_over', () => {
       expect(isGameEndLiarsBar({ event: 'game_over' })).toBe(true);
       expect(isGameEndLiarsBar({ event: 'play' })).toBe(false);
+    });
+  });
+
+  describe('createLiarsBarRoundNote and createLiarsBarDecisionNote', () => {
+    it('creates round note with round, target card, and current hand', () => {
+      const note = createLiarsBarRoundNote({
+        round: 3,
+        target: 'K',
+        hand: [
+          { slot: 1, card: 'Q' },
+          { slot: 2, card: 'K' },
+          { slot: 3, card: 'JOKER' },
+        ],
+      });
+      expect(note).toBe('轮次: 3 | 目标牌: K | 当前手牌: [Q, K, JOKER]');
+    });
+
+    it('creates decision note for honest play', () => {
+      const req = {
+        round: 3,
+        target: 'K',
+        hand: [
+          { slot: 1, card: 'Q' },
+          { slot: 2, card: 'K' },
+          { slot: 3, card: 'JOKER' },
+        ],
+      };
+      const note = createLiarsBarDecisionNote(req, { action: 'play', slots: [2, 3] });
+      expect(note).toBe('轮次: 3 | 目标牌: K | 当前手牌: [Q] | 上一手: 出牌 [K, JOKER]（真牌）');
+    });
+
+    it('creates decision note for bluff play', () => {
+      const req = {
+        round: 3,
+        target: 'K',
+        hand: [
+          { slot: 1, card: 'Q' },
+          { slot: 2, card: 'K' },
+          { slot: 3, card: 'A' },
+        ],
+      };
+      const note = createLiarsBarDecisionNote(req, { action: 'play', slots: [1, 3] });
+      expect(note).toBe('轮次: 3 | 目标牌: K | 当前手牌: [K] | 上一手: 出牌 [Q, A]（诈唬）');
+    });
+
+    it('creates decision note for challenge', () => {
+      const req = {
+        round: 3,
+        target: 'K',
+        hand: [
+          { slot: 1, card: 'Q' },
+          { slot: 2, card: 'K' },
+        ],
+      };
+      const note = createLiarsBarDecisionNote(req, { action: 'challenge' });
+      expect(note).toBe('轮次: 3 | 目标牌: K | 当前手牌: [Q, K] | 上一手: 质疑');
     });
   });
 });

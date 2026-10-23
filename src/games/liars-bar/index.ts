@@ -1,5 +1,7 @@
 export {
   buildLiarsBarPrompt,
+  createLiarsBarDecisionNote,
+  createLiarsBarRoundNote,
   describeLiarsBarEvent,
   fallbackLiarsBar,
   isGameEndLiarsBar,

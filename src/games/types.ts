@@ -19,4 +19,6 @@ export interface GameModule {
   describeEvent(event: unknown): string | undefined;
   wakesBot(event: unknown): boolean;
   isGameEnd(event: unknown): boolean;
+  createRoundNote?(req: unknown): string | undefined;
+  createDecisionNote?(req: unknown, action: GameAction): string | undefined;
 }

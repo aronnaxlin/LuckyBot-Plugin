@@ -25,6 +25,7 @@ const createMockContext = () => {
     scene: {
       enter: vi.fn(),
       exit: vi.fn(),
+      note: vi.fn(),
     },
     storage: { rootDir: '/tmp/test-storage' },
     log: {
@@ -158,7 +159,7 @@ describe('Tavern Protocol Handler (OpenAPI v1, de-identified)', () => {
   });
 
   describe('Privacy Invariant', () => {
-    it('round_start stores private hand in memory and NEVER publishes to chat', async () => {
+    it('round_start stores private hand in memory, sets scene note, and NEVER publishes to chat', async () => {
       const { ctx, published } = createMockContext();
       const handler = createTavernProtocolHandler(ctx.config, ctx, [liarsBarModule]);
 
@@ -181,9 +182,17 @@ describe('Tavern Protocol Handler (OpenAPI v1, de-identified)', () => {
       expect(res.status).toBe(200);
       expect(ctx.capabilities.chat.publish).not.toHaveBeenCalled();
       expect(published.length).toBe(0);
+
+      // Enters scene table and sets private scene note
+      expect(ctx.capabilities.scene.enter).toHaveBeenCalledWith('oc_example', 'table');
+      expect(ctx.capabilities.scene.note).toHaveBeenCalledWith(
+        'oc_example',
+        'table',
+        '轮次: 1 | 目标牌: K | 当前手牌: [SECRET_CARD_1, SECRET_CARD_2]',
+      );
     });
 
-    it('decision request processes private hand and NEVER publishes to chat', async () => {
+    it('decision request processes private hand, sets scene note, and NEVER publishes to chat', async () => {
       const { ctx, published } = createMockContext();
       const handler = createTavernProtocolHandler(ctx.config, ctx, [liarsBarModule]);
 
@@ -212,6 +221,51 @@ describe('Tavern Protocol Handler (OpenAPI v1, de-identified)', () => {
       expect(res.body).toEqual({ turn_id: 7, action: 'play', slots: [1] });
       expect(ctx.capabilities.chat.publish).not.toHaveBeenCalled();
       expect(published.length).toBe(0);
+
+      // Sets private scene note with decision and remaining hand
+      expect(ctx.capabilities.scene.note).toHaveBeenCalledWith(
+        'oc_example',
+        'table',
+        expect.stringContaining('轮次: 1 | 目标牌: K | 当前手牌: [SECRET_CARD_B] | 上一手: 出牌 [SECRET_CARD_A]（诈唬）'),
+      );
+    });
+
+    it('fallback decision also sets scene note and never publishes to chat', async () => {
+      const { ctx, published } = createMockContext();
+      // Model call throws
+      (ctx.capabilities.callModel as any).mockRejectedValueOnce(new Error('Model timeout'));
+      const handler = createTavernProtocolHandler(ctx.config, ctx, [liarsBarModule]);
+
+      const decidePayload = {
+        protocol: 1,
+        seq: 3,
+        game: 'liars_bar',
+        match_id: 'm_example_fb',
+        chat_id: 'oc_example',
+        turn_id: 9,
+        you: { seat: 1, name: 'Carol' },
+        round: 2,
+        target: 'Q',
+        hand: [{ slot: 1, card: 'Q' }, { slot: 2, card: 'K' }],
+        can_challenge: true,
+        must_challenge: false,
+        last_play: { seat: 0, name: 'Alice', count: 1 },
+      };
+
+      const req = signRequest('POST', '/v1/games/liars_bar/matches/m_example_fb/turns/9/decision', decidePayload);
+      const res = await handler.handleDecision(req, 'liars_bar', 'm_example_fb', '9');
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ turn_id: 9, action: 'play', slots: [1] });
+      expect(ctx.capabilities.chat.publish).not.toHaveBeenCalled();
+      expect(published.length).toBe(0);
+
+      // Note was set even on fallback
+      expect(ctx.capabilities.scene.note).toHaveBeenCalledWith(
+        'oc_example',
+        'table',
+        expect.stringContaining('轮次: 2 | 目标牌: Q | 当前手牌: [K] | 上一手: 出牌 [Q]（真牌）'),
+      );
     });
   });
 
@@ -248,11 +302,12 @@ describe('Tavern Protocol Handler (OpenAPI v1, de-identified)', () => {
       expect(pub.options.wake).toBe(true);
     });
 
-    it('does not wake the bot on play events', async () => {
+    it('wakes the bot on every play event and marks its own play', async () => {
       const { ctx, published } = createMockContext();
       const handler = createTavernProtocolHandler(ctx.config, ctx, [liarsBarModule]);
 
-      const playEvent = {
+      // 1. Opponent play of 2 cards -> wake = true (every public event wakes)
+      const play2Event = {
         protocol: 1,
         seq: 5,
         game: 'liars_bar',
@@ -267,12 +322,65 @@ describe('Tavern Protocol Handler (OpenAPI v1, de-identified)', () => {
         cards_left: 3,
       };
 
-      const req = signRequest('POST', '/v1/games/liars_bar/matches/m_example_10/events', playEvent);
-      const res = await handler.handleEvent(req, 'liars_bar', 'm_example_10');
+      await handler.handleEvent(signRequest('POST', '/v1/games/liars_bar/matches/m_example_10/events', play2Event), 'liars_bar', 'm_example_10');
+      expect(published[0]!.options.wake).toBe(true);
 
-      expect(res.status).toBe(200);
-      expect(published.length).toBe(1);
-      expect(published[0]!.options.wake).toBe(false);
+      // 2. Opponent play of 3 cards -> wake = true
+      const play3Event = {
+        ...play2Event,
+        seq: 6,
+        count: 3,
+      };
+      await handler.handleEvent(signRequest('POST', '/v1/games/liars_bar/matches/m_example_10/events', play3Event), 'liars_bar', 'm_example_10');
+      expect(published[1]!.options.wake).toBe(true);
+
+      // 3. Bot's own play (seat == you.seat) -> wake = true and marked with "你出了 2 张（声称都是 K）"
+      const ownPlayEvent = {
+        ...play2Event,
+        seq: 7,
+        seat: 1,
+        name: 'Carol',
+        count: 2,
+        target: 'K',
+      };
+      await handler.handleEvent(signRequest('POST', '/v1/games/liars_bar/matches/m_example_10/events', ownPlayEvent), 'liars_bar', 'm_example_10');
+      expect(published[2]!.options.wake).toBe(true);
+      expect(published[2]!.options.text).toContain('你出了 2 张（声称都是 K）');
+    });
+
+    it('handles shot events: click wakes and includes odds; bang wakes', async () => {
+      const { ctx, published } = createMockContext();
+      const handler = createTavernProtocolHandler(ctx.config, ctx, [liarsBarModule]);
+
+      // Click shot -> wake = true, text contains odds
+      const clickEvent = {
+        protocol: 1,
+        seq: 10,
+        game: 'liars_bar',
+        match_id: 'm_shot_test',
+        chat_id: 'oc_example',
+        turn_id: 11,
+        event: 'shot',
+        seat: 0,
+        name: 'Alice',
+        result: 'click',
+        shots_fired: 3,
+        nth: 3,
+      };
+      await handler.handleEvent(signRequest('POST', '/v1/games/liars_bar/matches/m_shot_test/events', clickEvent), 'liars_bar', 'm_shot_test');
+      expect(published[0]!.options.wake).toBe(true);
+      expect(published[0]!.options.text).toContain('下一枪中弹概率 1/3');
+
+      // Bang shot -> wake = true
+      const bangEvent = {
+        ...clickEvent,
+        seq: 11,
+        result: 'bang',
+        nth: 4,
+      };
+      await handler.handleEvent(signRequest('POST', '/v1/games/liars_bar/matches/m_shot_test/events', bangEvent), 'liars_bar', 'm_shot_test');
+      expect(published[1]!.options.wake).toBe(true);
+      expect(published[1]!.options.text).toContain('BANG！实弹击中');
     });
 
     it('ignores duplicate event deliveries without republishing to chat (R2)', async () => {

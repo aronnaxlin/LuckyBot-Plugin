@@ -214,6 +214,21 @@ export const createTavernProtocolHandler = (
       receivedAt: Date.now(),
     });
 
+    const chatId = typeof body.chat_id === 'string' ? body.chat_id : undefined;
+    if (chatId) {
+      matchChatIds.set(matchKey, chatId);
+      if (!activeSceneMatches.has(matchKey)) {
+        activeSceneMatches.add(matchKey);
+        ctx.capabilities.scene.enter(chatId, 'table');
+      }
+      if (game.createRoundNote) {
+        const note = game.createRoundNote(req.body);
+        if (note) {
+          ctx.capabilities.scene.note(chatId, 'table', note);
+        }
+      }
+    }
+
     return { status: 200, body: {} };
   };
 
@@ -297,6 +312,20 @@ export const createTavernProtocolHandler = (
       action: action.action,
     });
 
+    const chatId = typeof body.chat_id === 'string' ? body.chat_id : matchChatIds.get(matchKey);
+    if (chatId) {
+      if (!activeSceneMatches.has(matchKey)) {
+        activeSceneMatches.add(matchKey);
+        ctx.capabilities.scene.enter(chatId, 'table');
+      }
+      if (game.createDecisionNote) {
+        const note = game.createDecisionNote(req.body, action);
+        if (note) {
+          ctx.capabilities.scene.note(chatId, 'table', note);
+        }
+      }
+    }
+
     return {
       status: 200,
       body: {
@@ -338,7 +367,12 @@ export const createTavernProtocolHandler = (
     if (chatId) {
       matchChatIds.set(matchKey, chatId);
       try {
-        const text = game.describeEvent(req.body);
+        const stored = matchRounds.get(matchKey);
+        const storedTarget = (stored?.data as Record<string, unknown> | undefined)?.target;
+        const eventWithContext = storedTarget && !(req.body as Record<string, unknown>).target
+          ? { ...(req.body as Record<string, unknown>), target: storedTarget }
+          : req.body;
+        const text = game.describeEvent(eventWithContext);
         if (text) {
           const wake = game.wakesBot(req.body);
           void ctx.capabilities.chat.publish(chatId, {

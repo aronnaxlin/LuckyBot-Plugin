@@ -88,6 +88,7 @@ export interface PluginCapabilities {
   scene: {
     enter(chatId: string, sceneId: string): void;
     exit(chatId: string, sceneId: string): void;
+    note(chatId: string, sceneId: string, text: string | null): void;
   };
 
   storage: {
