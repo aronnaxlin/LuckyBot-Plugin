@@ -1,11 +1,21 @@
 import * as v from 'valibot';
 
+export const TavernInvitationConfigSchema = v.object({
+  decide: v.optional(v.union([v.literal('ask'), v.literal('always')]), 'always'),
+  timeoutMs: v.optional(v.pipe(v.number(), v.minValue(1000), v.maxValue(14000)), 8000),
+  onTimeout: v.optional(v.union([v.literal('accept'), v.literal('decline')]), 'accept'),
+});
+
+export type TavernInvitationConfig = v.InferOutput<typeof TavernInvitationConfigSchema>;
+
 export const TavernConfigSchema = v.pipe(
   v.object({
     enabled: v.optional(v.boolean(), true),
     secret: v.optional(v.string(), ''),
     model: v.optional(v.string(), 'probe'),
+    askModel: v.optional(v.string()),
     decisionTimeoutMs: v.optional(v.pipe(v.number(), v.minValue(1000), v.maxValue(14000)), 10000),
+    invitation: v.optional(TavernInvitationConfigSchema),
     basePath: v.optional(v.string(), ''),
     tableName: v.optional(v.string(), 'LuckyBot'),
     games: v.optional(v.record(v.string(), v.object({

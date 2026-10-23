@@ -22,7 +22,7 @@ export const tavernPlugin = definePlugin<TavernConfig>({
     promptHints: (_chatId: string) => [
       {
         placement: 'system',
-        text: '**Mini-games:** `<plugin-event plugin="tavern">` lines in context are public announcements from game tables in this group. You do not see your private cards or private game state in the chatlog. You may bluff, joke, or react in character, but never claim specific private cards as fact or invent unannounced table events. Keep table talk short (≤3 sentences), speak only when you have something natural to say rather than reacting to every single event, and stay in persona.',
+        text: '**Mini-games:** `<plugin-event plugin="tavern">` lines in context are public announcements from game tables in this group. You do not see your private cards or private game state in the chatlog. You may bluff, joke, or react in character, but never claim specific private cards as fact or invent unannounced table events. Never post dealer commands starting with `!` (such as `!加入` or `!开始`) in the group; seats are offered by the dealer, and you do not sign up yourself. Keep table talk short (≤3 sentences), speak only when you have something natural to say rather than reacting to every single event, and stay in persona.',
       },
     ],
   },

@@ -180,7 +180,90 @@ export const createTavernProtocolHandler = (
     if (!enabled) {
       return { status: 200, body: { accept: false } };
     }
-    return { status: 200, body: { accept: true } };
+
+    const chatId = typeof body.chat_id === 'string' && body.chat_id.trim() ? body.chat_id.trim() : undefined;
+    if (!chatId) {
+      ctx.capabilities.log.warn('Tavern invitation rejected: missing chat_id', { game: gameKey });
+      return { status: 200, body: { accept: false } };
+    }
+
+    const isChatEnabled = ctx.isEnabledForChat
+      ? ctx.isEnabledForChat(chatId)
+      : ctx.capabilities.isEnabledForChat
+        ? ctx.capabilities.isEnabledForChat(chatId)
+        : true;
+
+    if (!isChatEnabled) {
+      ctx.capabilities.log.warn('Tavern invitation rejected: tavern not enabled for chat', { chatId, game: gameKey });
+      return { status: 200, body: { accept: false } };
+    }
+
+    const invitationConf = config.invitation ?? {
+      decide: 'always',
+      timeoutMs: 8000,
+      onTimeout: 'accept',
+    };
+
+    const humans = Array.isArray(body.humans)
+      ? (body.humans as unknown[]).filter((h): h is string => typeof h === 'string' && h.trim().length > 0)
+      : [];
+
+    const gameNames: Record<string, string> = {
+      liars_bar: '骗子酒馆',
+    };
+    const gameName = gameNames[gameKey] ?? gameKey;
+
+    let accept = false;
+    let source: 'ask' | 'fallback' | 'always' = 'always';
+    const startMs = Date.now();
+
+    if (invitationConf.decide === 'ask') {
+      source = 'ask';
+      const humanDesc = humans.length > 0
+        ? `当前有 ${humans.length} 位玩家（${humans.join('、')}）在等待`
+        : '当前有玩家在等待';
+      const question = `荷官邀请你加入游戏【${gameName}】凑齐一桌，${humanDesc}，让你填补一个空位。你要接受上桌邀请还是拒绝？`;
+
+      try {
+        const result = await ctx.capabilities.ask(chatId, {
+          question,
+          choices: ['接受', '拒绝'],
+          timeoutMs: invitationConf.timeoutMs,
+        });
+        accept = result.choice === '接受';
+      } catch (err) {
+        source = 'fallback';
+        accept = invitationConf.onTimeout === 'accept';
+        ctx.capabilities.log.warn('Tavern invitation decision failed or timed out, executing fallback', {
+          chatId,
+          game: gameKey,
+          error: err instanceof Error ? err.message : String(err),
+          fallback: invitationConf.onTimeout,
+        });
+      }
+    } else {
+      accept = true;
+    }
+
+    const latencyMs = Date.now() - startMs;
+    ctx.capabilities.log.log('Tavern invitation decision completed', {
+      chatId,
+      game: gameKey,
+      source,
+      latencyMs,
+      accept,
+    });
+
+    const waitingDesc = humans.length > 0 ? `，等你的有 ${humans.join('、')}` : '';
+    const publicText = `荷官邀请你上桌（${gameName}${waitingDesc}）。${accept ? '你接受了。' : '你拒绝了。'}`;
+
+    void ctx.capabilities.chat.publish(chatId, {
+      kind: 'game_event',
+      text: publicText,
+      wake: true,
+    });
+
+    return { status: 200, body: { accept } };
   };
 
   const handleRoundStart = async (

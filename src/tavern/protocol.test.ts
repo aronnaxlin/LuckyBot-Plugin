@@ -3,6 +3,7 @@ import { createHmac } from 'node:crypto';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
 
+import { tavernPlugin } from './index';
 import { createTavernProtocolHandler } from './protocol';
 import { TavernConfigSchema, type TavernConfig } from './types';
 import { liarsBarModule } from '../games/liars-bar';
@@ -16,6 +17,8 @@ const createMockContext = () => {
 
   const capabilities: PluginCapabilities = {
     callModel: vi.fn(async () => '{"action": "play", "slots": [1]}'),
+    ask: vi.fn(async () => ({ choice: '接受' })),
+    isEnabledForChat: vi.fn((_chatId: string) => true),
     http: { route: vi.fn() },
     chat: {
       publish: vi.fn(async (chatId, options) => {
@@ -476,6 +479,181 @@ describe('Tavern Protocol Handler (OpenAPI v1, de-identified)', () => {
         secret: '',
       });
       expect(parsed.enabled).toBe(false);
+    });
+  });
+
+  describe('Invitations', () => {
+    it('rejects invitation when chat_id is missing', async () => {
+      const { ctx, published } = createMockContext();
+      const handler = createTavernProtocolHandler(ctx.config, ctx, [liarsBarModule]);
+
+      const req = signRequest('POST', '/v1/games/liars_bar/invitations', {
+        protocol: 1,
+        game: 'liars_bar',
+        match_id: 'm_inv_1',
+        humans: ['Alice'],
+      });
+
+      const res = await handler.handleInvitation(req, 'liars_bar');
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ accept: false });
+      expect(published).toHaveLength(0);
+    });
+
+    it('rejects invitation when tavern is disabled for that chat', async () => {
+      const { ctx, published } = createMockContext();
+      ctx.isEnabledForChat = vi.fn((chatId: string) => chatId !== 'oc_disabled_chat');
+      const handler = createTavernProtocolHandler(ctx.config, ctx, [liarsBarModule]);
+
+      const req = signRequest('POST', '/v1/games/liars_bar/invitations', {
+        protocol: 1,
+        chat_id: 'oc_disabled_chat',
+        game: 'liars_bar',
+        match_id: 'm_inv_2',
+        humans: ['Bob'],
+      });
+
+      const res = await handler.handleInvitation(req, 'liars_bar');
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ accept: false });
+      expect(published).toHaveLength(0);
+    });
+
+    it('accepts by default when decide is always, publishes public line with wake=true', async () => {
+      const { ctx, published } = createMockContext();
+      const handler = createTavernProtocolHandler(ctx.config, ctx, [liarsBarModule]);
+
+      const req = signRequest('POST', '/v1/games/liars_bar/invitations', {
+        protocol: 1,
+        chat_id: 'oc_chat_1',
+        game: 'liars_bar',
+        match_id: 'm_inv_3',
+        humans: ['Alice', 'Bob'],
+      });
+
+      const res = await handler.handleInvitation(req, 'liars_bar');
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ accept: true });
+      expect(published).toHaveLength(1);
+      expect(published[0]).toEqual({
+        chatId: 'oc_chat_1',
+        options: {
+          kind: 'game_event',
+          text: '荷官邀请你上桌（骗子酒馆，等你的有 Alice、Bob）。你接受了。',
+          wake: true,
+        },
+      });
+      // Scene enter is not called on invitation
+      expect(ctx.capabilities.scene.enter).not.toHaveBeenCalled();
+    });
+
+    it('decides via ask capability when configured: accepts', async () => {
+      const { ctx, published } = createMockContext();
+      ctx.config.invitation = {
+        decide: 'ask',
+        timeoutMs: 5000,
+        onTimeout: 'decline',
+      };
+      (ctx.capabilities.ask as any).mockResolvedValueOnce({
+        choice: '接受',
+        reason: '想玩',
+      });
+      const handler = createTavernProtocolHandler(ctx.config, ctx, [liarsBarModule]);
+
+      const req = signRequest('POST', '/v1/games/liars_bar/invitations', {
+        protocol: 1,
+        chat_id: 'oc_chat_1',
+        game: 'liars_bar',
+        match_id: 'm_inv_4',
+        humans: ['Alice'],
+      });
+
+      const res = await handler.handleInvitation(req, 'liars_bar');
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ accept: true });
+
+      expect(ctx.capabilities.ask).toHaveBeenCalledWith(
+        'oc_chat_1',
+        expect.objectContaining({
+          question: expect.stringContaining('骗子酒馆'),
+          choices: ['接受', '拒绝'],
+          timeoutMs: 5000,
+        }),
+      );
+
+      expect(published).toHaveLength(1);
+      expect(published[0]!.options.text).toBe('荷官邀请你上桌（骗子酒馆，等你的有 Alice）。你接受了。');
+      expect(published[0]!.options.wake).toBe(true);
+      expect(ctx.capabilities.scene.enter).not.toHaveBeenCalled();
+    });
+
+    it('decides via ask capability when configured: declines and does not enter scene', async () => {
+      const { ctx, published } = createMockContext();
+      ctx.config.invitation = {
+        decide: 'ask',
+        timeoutMs: 5000,
+        onTimeout: 'accept',
+      };
+      (ctx.capabilities.ask as any).mockResolvedValueOnce({
+        choice: '拒绝',
+        reason: '没空',
+      });
+      const handler = createTavernProtocolHandler(ctx.config, ctx, [liarsBarModule]);
+
+      const req = signRequest('POST', '/v1/games/liars_bar/invitations', {
+        protocol: 1,
+        chat_id: 'oc_chat_1',
+        game: 'liars_bar',
+        match_id: 'm_inv_5',
+        humans: ['Alice'],
+      });
+
+      const res = await handler.handleInvitation(req, 'liars_bar');
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ accept: false });
+
+      expect(published).toHaveLength(1);
+      expect(published[0]!.options.text).toBe('荷官邀请你上桌（骗子酒馆，等你的有 Alice）。你拒绝了。');
+      expect(published[0]!.options.wake).toBe(true);
+      expect(ctx.capabilities.scene.enter).not.toHaveBeenCalled();
+    });
+
+    it('falls back to onTimeout when ask throws or times out', async () => {
+      const { ctx, published, logCalls } = createMockContext();
+      ctx.config.invitation = {
+        decide: 'ask',
+        timeoutMs: 3000,
+        onTimeout: 'decline',
+      };
+      (ctx.capabilities.ask as any).mockRejectedValueOnce(new Error('timeout'));
+      const handler = createTavernProtocolHandler(ctx.config, ctx, [liarsBarModule]);
+
+      const req = signRequest('POST', '/v1/games/liars_bar/invitations', {
+        protocol: 1,
+        chat_id: 'oc_chat_1',
+        game: 'liars_bar',
+        match_id: 'm_inv_6',
+      });
+
+      const res = await handler.handleInvitation(req, 'liars_bar');
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ accept: false });
+
+      expect(published).toHaveLength(1);
+      expect(published[0]!.options.text).toBe('荷官邀请你上桌（骗子酒馆）。你拒绝了。');
+      expect(published[0]!.options.wake).toBe(true);
+      expect(ctx.capabilities.scene.enter).not.toHaveBeenCalled();
+
+      // Verified log contains source: fallback
+      expect(logCalls.some(c => c.msg.includes('invitation decision') && c.fields?.source === 'fallback')).toBe(true);
+    });
+
+    it('includes dealer command prohibition in prompt hint', () => {
+      const hints = tavernPlugin.contributes?.promptHints?.('oc_test');
+      expect(hints).toBeDefined();
+      expect(hints![0]!.text).toContain('!加入');
+      expect(hints![0]!.text).toContain('!开始');
+      expect(hints![0]!.text).toContain('seats are offered by the dealer');
     });
   });
 });

@@ -77,6 +77,17 @@ export interface PluginCapabilities {
     options?: { timeoutSec?: number; dumpId?: string },
   ): Promise<string>;
 
+  ask(
+    chatId: string,
+    options: {
+      question: string;
+      choices: string[];
+      timeoutMs?: number;
+    },
+  ): Promise<{ choice: string; reason?: string }>;
+
+  isEnabledForChat?(chatId: string): boolean;
+
   http: {
     route(route: HttpRoute): void;
   };
@@ -105,6 +116,7 @@ export interface PluginCapabilities {
 export interface PluginContext<TConfig = unknown> {
   config: TConfig;
   capabilities: PluginCapabilities;
+  isEnabledForChat?(chatId: string): boolean;
 }
 
 export interface PluginDefinition<TConfig = unknown> {

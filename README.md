@@ -2,7 +2,7 @@
 
 This repository provides optional modular plugins for [LuckyBot](https://github.com/aronnaxlin/LuckyBot).
 
-Core acts as the **host** providing strictly scoped capabilities (model invocation, HTTP routing, chat publishing, scoped storage, and logging). Plugins are declared statically and mount inside the LuckyBot core as a Git submodule at `plugins/`. For the complete normative specification, see [LuckyBot Plugin Specification (docs/plugins.md)](https://github.com/aronnaxlin/LuckyBot/blob/main/docs/plugins.md).
+Core acts as the **host** providing strictly scoped capabilities (model invocation, bounded choice asking, HTTP routing, chat publishing, scoped storage, and logging). Plugins are declared statically and mount inside the LuckyBot core as a Git submodule at `plugins/`. For the complete normative specification, see [LuckyBot Plugin Specification (docs/plugins.md)](https://github.com/aronnaxlin/LuckyBot/blob/main/docs/plugins.md).
 
 ## Architecture & Principles
 
@@ -30,6 +30,9 @@ Contributes `web_search` and `web_fetch` primary tools via the `tools` extension
 
 ### 2. Tavern & Liar's Bar (`tavern`)
 The repository includes the `tavern` plugin implementing the dealer webhook protocol (OpenAPI v1), the `liars_bar` game module, and the `table` scene override (`contributes.scenes`). See `src/games/README.md` for deployment and maintenance notes.
+
+- **Invitations**: Configured via `plugins.tavern.invitation: { decide: 'ask' | 'always', timeoutMs: 8000, onTimeout: 'accept' | 'decline' }`. In `decide: 'ask'` mode, the bot uses the core `ask` capability to decide in-character whether to accept table invitations based on persona, waiting players, and recent chat context.
+- **Dealer Commands**: Prompt hints instruct the bot to never post dealer commands starting with `!` (e.g. `!加入`, `!开始`) into the group; seats are offered by the dealer, and the bot does not sign up itself.
 
 ### Reverse Proxy & Path Notice
 
