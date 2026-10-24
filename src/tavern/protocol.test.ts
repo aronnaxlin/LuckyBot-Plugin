@@ -480,6 +480,45 @@ describe('Tavern Protocol Handler (OpenAPI v1, de-identified)', () => {
       });
       expect(parsed.enabled).toBe(false);
     });
+
+    it('accepts a decision timeout for a 30 s dealer deadline', () => {
+      const parsed = v.parse(TavernConfigSchema, { secret: 's', decisionTimeoutMs: 28000 });
+      expect(parsed.decisionTimeoutMs).toBe(28000);
+      expect(() => v.parse(TavernConfigSchema, { secret: 's', decisionTimeoutMs: 60001 })).toThrow();
+    });
+  });
+
+  describe('Decision budget', () => {
+    const decide = async (decisionTimeoutMs: number, deadline_ms?: number) => {
+      const { ctx, logCalls } = createMockContext();
+      const handler = createTavernProtocolHandler({ ...ctx.config, decisionTimeoutMs }, ctx, [liarsBarModule]);
+      const payload = {
+        protocol: 1,
+        seq: 1,
+        game: 'liars_bar',
+        match_id: 'm_budget',
+        chat_id: 'oc_example',
+        turn_id: 1,
+        you: { seat: 1, name: 'Carol' },
+        round: 1,
+        target: 'K',
+        hand: [{ slot: 1, card: 'K' }],
+        can_challenge: false,
+        must_challenge: false,
+        ...(deadline_ms === undefined ? {} : { deadline_ms }),
+      };
+      const req = signRequest('POST', '/v1/games/liars_bar/matches/m_budget/turns/1/decision', payload);
+      await handler.handleDecision(req, 'liars_bar', 'm_budget', '1');
+      return logCalls.find(c => c.msg === 'Game decision completed')!.fields;
+    };
+
+    it('uses our timeout when the dealer deadline leaves more room', async () => {
+      expect(await decide(28000, 30000)).toMatchObject({ budgetMs: 28000, deadlineMs: 30000 });
+    });
+
+    it('keeps a 2 s margin under a tighter dealer deadline', async () => {
+      expect(await decide(28000, 15000)).toMatchObject({ budgetMs: 13000, deadlineMs: 15000 });
+    });
   });
 
   describe('Invitations', () => {

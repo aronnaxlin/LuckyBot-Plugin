@@ -344,9 +344,10 @@ export const createTavernProtocolHandler = (
     }
 
     const decisionTimeoutMs = config.decisionTimeoutMs ?? 10000;
-    const rawDeadlineMs = typeof (req.body as Record<string, unknown>)?.deadline_ms === 'number'
+    const dealerDeadlineMs = typeof (req.body as Record<string, unknown>)?.deadline_ms === 'number'
       ? ((req.body as Record<string, unknown>).deadline_ms as number)
-      : decisionTimeoutMs;
+      : undefined;
+    const rawDeadlineMs = dealerDeadlineMs ?? decisionTimeoutMs;
     const budgetMs = Math.min(decisionTimeoutMs, Math.max(1000, rawDeadlineMs - 2000));
 
     const startMs = Date.now();
@@ -392,6 +393,8 @@ export const createTavernProtocolHandler = (
       turnId,
       source,
       latencyMs,
+      budgetMs,
+      deadlineMs: dealerDeadlineMs,
       action: action.action,
     });
 

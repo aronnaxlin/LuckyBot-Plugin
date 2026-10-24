@@ -14,7 +14,10 @@ export const TavernConfigSchema = v.pipe(
     secret: v.optional(v.string(), ''),
     model: v.optional(v.string(), 'probe'),
     askModel: v.optional(v.string()),
-    decisionTimeoutMs: v.optional(v.pipe(v.number(), v.minValue(1000), v.maxValue(14000)), 10000),
+    // The dealer's per-request deadline_ms (minus a 2 s margin) still caps the
+    // budget; this only bounds our own share. Raised from 14000 when the dealer
+    // moved bot decisions from 15 s to 30 s.
+    decisionTimeoutMs: v.optional(v.pipe(v.number(), v.minValue(1000), v.maxValue(60000)), 10000),
     invitation: v.optional(TavernInvitationConfigSchema),
     basePath: v.optional(v.string(), ''),
     tableName: v.optional(v.string(), 'LuckyBot'),
