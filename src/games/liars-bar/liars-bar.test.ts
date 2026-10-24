@@ -276,58 +276,33 @@ describe("Liar's Bar module (de-identified)", () => {
   });
 
   describe('createLiarsBarRoundNote and createLiarsBarDecisionNote', () => {
-    it('creates round note with round, target card, and current hand', () => {
-      const note = createLiarsBarRoundNote({
-        round: 3,
-        target: 'K',
-        hand: [
-          { slot: 1, card: 'Q' },
-          { slot: 2, card: 'K' },
-          { slot: 3, card: 'JOKER' },
-        ],
-      });
-      expect(note).toBe('轮次: 3 | 目标牌: K | 当前手牌: [Q, K, JOKER]');
+    const RULE = '出牌由牌桌另行决定，聊天里你不知道自己是什么牌：别报具体牌面，别预告下一手出几张；嘴上咬定是真牌、虚张声势都行';
+    const hand = [
+      { slot: 1, card: 'QUEEN_X' },
+      { slot: 2, card: 'KING_X' },
+      { slot: 3, card: 'JOKER_X' },
+    ];
+    const noCardFaces = (note: string | undefined) => {
+      expect(note).toBeDefined();
+      for (const face of ['QUEEN_X', 'KING_X', 'JOKER_X', '真牌）', '诈唬']) expect(note).not.toContain(face);
+    };
+
+    it('round note carries round, target and hand size, never card faces', () => {
+      const note = createLiarsBarRoundNote({ round: 3, target: 'K', hand });
+      expect(note).toBe(`轮次: 3 | 目标牌: K | 手里 3 张 | ${RULE}`);
+      noCardFaces(note);
     });
 
-    it('creates decision note for honest play', () => {
-      const req = {
-        round: 3,
-        target: 'K',
-        hand: [
-          { slot: 1, card: 'Q' },
-          { slot: 2, card: 'K' },
-          { slot: 3, card: 'JOKER' },
-        ],
-      };
-      const note = createLiarsBarDecisionNote(req, { action: 'play', slots: [2, 3] });
-      expect(note).toBe('轮次: 3 | 目标牌: K | 当前手牌: [Q] | 上一手: 出牌 [K, JOKER]（真牌）');
+    it('play note says what the table saw, not which cards or whether it was honest', () => {
+      const note = createLiarsBarDecisionNote({ round: 3, target: 'K', hand }, { action: 'play', slots: [1, 3] });
+      expect(note).toBe(`轮次: 3 | 目标牌: K | 手里 1 张 | 你这一手: 出 2 张，对外声称都是 K | ${RULE}`);
+      noCardFaces(note);
     });
 
-    it('creates decision note for bluff play', () => {
-      const req = {
-        round: 3,
-        target: 'K',
-        hand: [
-          { slot: 1, card: 'Q' },
-          { slot: 2, card: 'K' },
-          { slot: 3, card: 'A' },
-        ],
-      };
-      const note = createLiarsBarDecisionNote(req, { action: 'play', slots: [1, 3] });
-      expect(note).toBe('轮次: 3 | 目标牌: K | 当前手牌: [K] | 上一手: 出牌 [Q, A]（诈唬）');
-    });
-
-    it('creates decision note for challenge', () => {
-      const req = {
-        round: 3,
-        target: 'K',
-        hand: [
-          { slot: 1, card: 'Q' },
-          { slot: 2, card: 'K' },
-        ],
-      };
-      const note = createLiarsBarDecisionNote(req, { action: 'challenge' });
-      expect(note).toBe('轮次: 3 | 目标牌: K | 当前手牌: [Q, K] | 上一手: 质疑');
+    it('challenge note keeps the hand size and hides the cards', () => {
+      const note = createLiarsBarDecisionNote({ round: 3, target: 'K', hand }, { action: 'challenge' });
+      expect(note).toBe(`轮次: 3 | 目标牌: K | 手里 3 张 | 你这一手: 质疑上家 | ${RULE}`);
+      noCardFaces(note);
     });
   });
 });

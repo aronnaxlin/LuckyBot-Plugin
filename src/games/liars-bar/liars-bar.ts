@@ -289,20 +289,23 @@ export const isGameEndLiarsBar = (event: unknown): boolean => {
   return (event as Record<string, unknown>).event === 'game_over';
 };
 
-const formatHandCards = (hand: unknown): string => {
-  if (!Array.isArray(hand)) return '';
-  return hand
-    .map(h => (typeof h === 'object' && h !== null && 'card' in h ? String((h as { card: unknown }).card) : String(h)))
-    .join(', ');
-};
+// The table talker (primary) never sees card faces or whether its own play
+// was honest. In two live games (2026-10-24) it read both from the note and
+// said them aloud ("两张 Q，都是真的", "我手上只剩一张 A"), and the humans
+// played against that. A prompt rule did not stop it, so the note carries
+// only what the bot already showed the table. Plays are decided separately by
+// `decide`; the note also says so, because the talker kept announcing moves
+// ("跟两张") that the decision then contradicted.
+const TALKER_RULE = '出牌由牌桌另行决定，聊天里你不知道自己是什么牌：别报具体牌面，别预告下一手出几张；嘴上咬定是真牌、虚张声势都行';
+
+const handCount = (hand: unknown): number => (Array.isArray(hand) ? hand.length : 0);
 
 export const createLiarsBarRoundNote = (req: unknown): string | undefined => {
   if (!req || typeof req !== 'object') return undefined;
   const r = req as Record<string, unknown>;
   const round = r.round ?? 1;
   const target = r.target ?? '未知';
-  const handStr = formatHandCards(r.hand);
-  return `轮次: ${round} | 目标牌: ${target} | 当前手牌: [${handStr}]`;
+  return `轮次: ${round} | 目标牌: ${target} | 手里 ${handCount(r.hand)} 张 | ${TALKER_RULE}`;
 };
 
 export const createLiarsBarDecisionNote = (req: unknown, action: GameAction): string | undefined => {
@@ -310,24 +313,15 @@ export const createLiarsBarDecisionNote = (req: unknown, action: GameAction): st
   const r = req as Record<string, unknown>;
   const round = r.round ?? 1;
   const target = String(r.target ?? '未知');
-  const rawHand = Array.isArray(r.hand) ? (r.hand as Array<{ slot?: number; card?: string }>) : [];
+  const held = handCount(r.hand);
 
   if (action.action === 'challenge') {
-    const handStr = formatHandCards(rawHand);
-    return `轮次: ${round} | 目标牌: ${target} | 当前手牌: [${handStr}] | 上一手: 质疑`;
+    return `轮次: ${round} | 目标牌: ${target} | 手里 ${held} 张 | 你这一手: 质疑上家 | ${TALKER_RULE}`;
   }
 
   if (action.action === 'play') {
-    const playedSlots = new Set(Array.isArray(action.slots) ? action.slots : []);
-    const playedCards = rawHand.filter(h => h?.slot !== undefined && playedSlots.has(h.slot));
-    const remainingCards = rawHand.filter(h => h?.slot !== undefined && !playedSlots.has(h.slot));
-
-    const isHonest = playedCards.length > 0 && playedCards.every(h => h.card === target || h.card === 'JOKER');
-    const honestyStr = isHonest ? '真牌' : '诈唬';
-    const playedStr = formatHandCards(playedCards);
-    const remainingStr = formatHandCards(remainingCards);
-
-    return `轮次: ${round} | 目标牌: ${target} | 当前手牌: [${remainingStr}] | 上一手: 出牌 [${playedStr}]（${honestyStr}）`;
+    const played = Array.isArray(action.slots) ? action.slots.length : 0;
+    return `轮次: ${round} | 目标牌: ${target} | 手里 ${held - played} 张 | 你这一手: 出 ${played} 张，对外声称都是 ${target} | ${TALKER_RULE}`;
   }
 
   return undefined;

@@ -16,13 +16,13 @@ export const tavernPlugin = definePlugin<TavernConfig>({
     scenes: [
       {
         id: 'table',
-        hint: 'You are currently participating in a mini-game table in this group. Keep table talk short, in character, and stay in persona.',
+        hint: 'You are seated at a mini-game table in this group. Your moves are made separately and arrive as `<plugin-event>` lines; you cannot play, challenge or pass by speaking. Talk only about what the table has already seen: plays, challenges, shots, odds, people. Never name your own cards and never announce how many cards you will play next; insisting a play was genuine is fine bluffing, since you do not know. Keep it to one or two short lines, skip events you have nothing to add to, and stay in persona.',
       },
     ],
     promptHints: (_chatId: string) => [
       {
         placement: 'system',
-        text: '**Mini-games:** `<plugin-event plugin="tavern">` lines in context are public announcements from game tables in this group. You do not see your private cards or private game state in the chatlog. You may bluff, joke, or react in character, but never claim specific private cards as fact or invent unannounced table events. Never post dealer commands starting with `!` (such as `!加入` or `!开始`) in the group; seats are offered by the dealer, and you do not sign up yourself. Keep table talk short (≤3 sentences), speak only when you have something natural to say rather than reacting to every single event, and stay in persona.',
+        text: '**Mini-games:** `<plugin-event plugin="tavern">` lines in context are public announcements from game tables in this group. You do not know your own cards, and your moves are made separately and announced in those lines; speaking does not play. You may bluff, joke, or react in character, but never name specific cards as yours, never announce a move before it appears, and never invent unannounced table events. Never post dealer commands starting with `!` (such as `!加入` or `!开始`) in the group; seats are offered by the dealer, and you do not sign up yourself. Keep table talk short (≤3 sentences), speak only when you have something natural to say rather than reacting to every single event, and stay in persona.',
       },
     ],
   },

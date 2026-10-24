@@ -162,7 +162,7 @@ describe('Tavern Protocol Handler (OpenAPI v1, de-identified)', () => {
   });
 
   describe('Privacy Invariant', () => {
-    it('round_start stores private hand in memory, sets scene note, and NEVER publishes to chat', async () => {
+    it('round_start sets a scene note without card faces and NEVER publishes to chat', async () => {
       const { ctx, published } = createMockContext();
       const handler = createTavernProtocolHandler(ctx.config, ctx, [liarsBarModule]);
 
@@ -191,11 +191,12 @@ describe('Tavern Protocol Handler (OpenAPI v1, de-identified)', () => {
       expect(ctx.capabilities.scene.note).toHaveBeenCalledWith(
         'oc_example',
         'table',
-        '轮次: 1 | 目标牌: K | 当前手牌: [SECRET_CARD_1, SECRET_CARD_2]',
+        expect.stringContaining('轮次: 1 | 目标牌: K | 手里 2 张'),
       );
+      expect(JSON.stringify((ctx.capabilities.scene.note as any).mock.calls)).not.toContain('SECRET_CARD');
     });
 
-    it('decision request processes private hand, sets scene note, and NEVER publishes to chat', async () => {
+    it('decision request sets a scene note without card faces and NEVER publishes to chat', async () => {
       const { ctx, published } = createMockContext();
       const handler = createTavernProtocolHandler(ctx.config, ctx, [liarsBarModule]);
 
@@ -225,12 +226,13 @@ describe('Tavern Protocol Handler (OpenAPI v1, de-identified)', () => {
       expect(ctx.capabilities.chat.publish).not.toHaveBeenCalled();
       expect(published.length).toBe(0);
 
-      // Sets private scene note with decision and remaining hand
+      // Sets a scene note with the public shape of the play, never the cards
       expect(ctx.capabilities.scene.note).toHaveBeenCalledWith(
         'oc_example',
         'table',
-        expect.stringContaining('轮次: 1 | 目标牌: K | 当前手牌: [SECRET_CARD_B] | 上一手: 出牌 [SECRET_CARD_A]（诈唬）'),
+        expect.stringContaining('轮次: 1 | 目标牌: K | 手里 1 张 | 你这一手: 出 1 张，对外声称都是 K'),
       );
+      expect(JSON.stringify((ctx.capabilities.scene.note as any).mock.calls)).not.toContain('SECRET_CARD');
     });
 
     it('fallback decision also sets scene note and never publishes to chat', async () => {
@@ -267,7 +269,7 @@ describe('Tavern Protocol Handler (OpenAPI v1, de-identified)', () => {
       expect(ctx.capabilities.scene.note).toHaveBeenCalledWith(
         'oc_example',
         'table',
-        expect.stringContaining('轮次: 2 | 目标牌: Q | 当前手牌: [K] | 上一手: 出牌 [Q]（真牌）'),
+        expect.stringContaining('轮次: 2 | 目标牌: Q | 手里 1 张 | 你这一手: 出 1 张，对外声称都是 Q'),
       );
     });
   });
