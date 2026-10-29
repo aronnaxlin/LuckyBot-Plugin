@@ -1,8 +1,8 @@
 # LuckyBot Plugin
 
-This repository provides optional modular plugins for [LuckyBot](https://github.com/aronnaxlin/LuckyBot).
+This repository provides optional modular plugins for [LuckyBot](https://github.com/luckybot-dev/LuckyBot).
 
-Core acts as the **host** providing strictly scoped capabilities (model invocation, bounded choice asking, HTTP routing, chat publishing, scoped storage, and logging). Plugins are declared statically and mount inside the LuckyBot core as a Git submodule at `plugins/`. For the complete normative specification, see [LuckyBot Plugin Specification (docs/plugins.md)](https://github.com/aronnaxlin/LuckyBot/blob/main/docs/plugins.md).
+Core acts as the **host** providing strictly scoped capabilities (model invocation, bounded choice asking, HTTP routing, chat publishing, scoped storage, and logging). Plugins are declared statically and mount inside the LuckyBot core as a Git submodule at `plugins/`. For the complete normative specification, see [LuckyBot Plugin Specification (docs/plugins.md)](https://github.com/luckybot-dev/LuckyBot/blob/main/docs/plugins.md).
 
 ## Architecture & Principles
 
