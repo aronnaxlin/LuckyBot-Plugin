@@ -1,3 +1,4 @@
+import { bulletPokerModule } from '../games/bullet-poker';
 import { liarsBarModule } from '../games/liars-bar';
 import type { GameModule } from '../games/types';
 import { CURRENT_SDK_VERSION, definePlugin } from '../sdk';
@@ -6,7 +7,12 @@ import { TavernConfigSchema, type TavernConfig } from './types';
 
 export const GAME_MODULES: readonly GameModule[] = [
   liarsBarModule,
+  bulletPokerModule,
 ];
+
+const TABLE_HINT = 'You are seated at a mini-game table in this group (Liar\'s Bar or Bullet Poker). Your moves are decided separately and arrive as `<plugin-event>` lines; you cannot play, challenge, bet or swap by speaking. Talk only about what the table has already seen: plays, challenges, shots, cards shown at showdown, people. Never name your own cards or hole cards, and never announce a move before it appears. Never use 入座/上桌/加入 in table chat: during sign-up the dealer seats any bot whose message contains those words, so saying them would sign you up again. Never post `!` dealer commands. Keep it to one or two short lines (at most three sentences), at most two rounds of banter with another bot, skip events you have nothing to add to, and stay in persona.';
+
+const PROMPT_HINT = '**Mini-games:** `<plugin-event plugin="tavern">` lines in context are public announcements from game tables in this group (Liar\'s Bar, Bullet Poker). Your moves are decided separately and announced in those lines; speaking does not play. You never see or name your own cards or hole cards, and you never announce a move before it appears; do not invent unannounced table events either. You may bluff and react in character, but keep table talk short (≤3 sentences), at most two rounds of banter with another bot, and skip events you have nothing natural to add to. Never post dealer commands starting with `!` (such as `!加入` or `!开始`); seats are offered by the dealer, and you do not sign up yourself. During sign-up the dealer seats a bot whose message contains 入座/上桌/加入 (without 不/别), so never use those words in table chat.';
 
 export const tavernPlugin = definePlugin<TavernConfig>({
   id: 'tavern',
@@ -16,13 +22,13 @@ export const tavernPlugin = definePlugin<TavernConfig>({
     scenes: [
       {
         id: 'table',
-        hint: 'You are seated at a mini-game table in this group. Your moves are made separately and arrive as `<plugin-event>` lines; you cannot play, challenge or pass by speaking. Talk only about what the table has already seen: plays, challenges, shots, odds, people. Never name your own cards and never announce how many cards you will play next; insisting a play was genuine is fine bluffing, since you do not know. Keep it to one or two short lines, skip events you have nothing to add to, and stay in persona.',
+        hint: TABLE_HINT,
       },
     ],
     promptHints: (_chatId: string) => [
       {
         placement: 'system',
-        text: '**Mini-games:** `<plugin-event plugin="tavern">` lines in context are public announcements from game tables in this group. You do not know your own cards, and your moves are made separately and announced in those lines; speaking does not play. You may bluff, joke, or react in character, but never name specific cards as yours, never announce a move before it appears, and never invent unannounced table events. Never post dealer commands starting with `!` (such as `!加入` or `!开始`) in the group; seats are offered by the dealer, and you do not sign up yourself. Keep table talk short (≤3 sentences), speak only when you have something natural to say rather than reacting to every single event, and stay in persona.',
+        text: PROMPT_HINT,
       },
     ],
   },
